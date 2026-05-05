@@ -1,0 +1,33 @@
+# Runtime data
+*.csv
+*.log
+*.err.log
+*.bak
+*.tmp
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+
+# Secrets
+.env
+.env.*
+!.env.*.example
+*.key
+*.pem
+
+# Local dashboard/browser state
+.streamlit/
+.playwright-mcp/
+dashboard*.png
+markets_debug.json
+*_state.json
+*_lock.json
+*_cooldowns.json
+real_*_lock.json
+
+# OS/editor
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
