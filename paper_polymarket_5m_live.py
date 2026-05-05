@@ -107,6 +107,8 @@ class LiveConfig:
     min_ema_slope_usd: float = 0.2
     max_price_ema_fast_distance_usd: float = 80.0
     stake_usdc: float = 10.0
+    paper_limit_entry_price: float = 0.0
+    paper_limit_entry_min_seconds_remaining: int = 20
     settle_delay_seconds: int = 10
     trades_csv: str = "paper_polymarket_5m_trades.csv"
     event_duration_minutes: int = 5
@@ -163,6 +165,8 @@ class PaperPosition:
     order_id: str = ""
     order_status: str = ""
     order_response: str = ""
+    signal_contract_price: float = 0.0
+    limit_entry_price: float = 0.0
 
 
 class LegacyRealOrderClient:
@@ -1120,6 +1124,65 @@ def place_real_buy_order(client, position: PaperPosition, market: LiveMarket, co
     )
 
 
+def paper_limit_entry_enabled(config: LiveConfig) -> bool:
+    return config.paper_limit_entry_price > 0 and not config.real_mode
+
+
+def prepare_paper_limit_entry(position: PaperPosition, config: LiveConfig, now: datetime) -> PaperPosition:
+    limit_price = round(config.paper_limit_entry_price, 3)
+    current_signal_price = position.contract_price
+    base = replace(
+        position,
+        contract_price=limit_price,
+        edge=round(position.model_probability - limit_price, 10),
+        signal_contract_price=current_signal_price,
+        limit_entry_price=limit_price,
+    )
+    if current_signal_price <= limit_price:
+        return replace(
+            base,
+            status="OPEN",
+            order_status="FILLED_LIMIT_IMMEDIATE",
+            order_response=f"signal_price={current_signal_price:.3f}",
+        )
+
+    return replace(
+        base,
+        status="PENDING_LIMIT",
+        order_status="PENDING_LIMIT",
+        order_response=f"signal_price={current_signal_price:.3f}",
+        entry_ts=int(now.timestamp()),
+    )
+
+
+def try_fill_paper_limit_entry(position: PaperPosition, config: LiveConfig, now: datetime) -> PaperPosition | None:
+    if position.status != "PENDING_LIMIT":
+        return position
+
+    seconds_remaining = position.event_end_ts - int(now.timestamp())
+    if seconds_remaining <= config.paper_limit_entry_min_seconds_remaining:
+        return None
+
+    current_contract_price = fetch_buy_price(position.token_id)
+    if current_contract_price > position.limit_entry_price:
+        print(
+            f"[{now.strftime('%H:%M:%S')}] LIMIT PENDENTE {position.direction} "
+            f"limit={position.limit_entry_price:.3f} atual={current_contract_price:.3f} "
+            f"restante={max(seconds_remaining, 0)}s"
+        )
+        return position
+
+    current_price = fetch_binance_price(config.symbol)
+    return replace(
+        position,
+        status="OPEN",
+        entry_ts=int(now.timestamp()),
+        entry_btc_price=current_price,
+        order_status="FILLED_LIMIT",
+        order_response=f"fill_touch_price={current_contract_price:.3f}",
+    )
+
+
 def evaluate_entry(config: LiveConfig, now: datetime | None = None) -> PaperPosition | None:
     if now is None:
         now = utc_now()
@@ -1409,6 +1472,8 @@ def append_trade_csv(path: str, position: PaperPosition) -> None:
         "order_id",
         "order_status",
         "order_response",
+        "signal_contract_price",
+        "limit_entry_price",
     ]
     write_header = not output.exists() or output.stat().st_size == 0
     with output.open("a", newline="", encoding="utf-8") as handle:
@@ -1456,6 +1521,12 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
         f"Filtros: strategy={config.strategy}, offsets={config.entry_offsets}, edge_min={config.edge_min}, "
         f"preco={config.min_contract_price}-{config.max_contract_price}, duration={config.event_duration_minutes}m"
     )
+    if paper_limit_entry_enabled(config):
+        print(
+            f"PAPER LIMIT: sinal no offset normal, entrada apenas se tocar "
+            f"{config.paper_limit_entry_price:.3f}; cancela com "
+            f"{config.paper_limit_entry_min_seconds_remaining}s restantes."
+        )
     if config.real_mode:
         print(
             f"REAL: stake={config.stake_usdc:.2f} USDC, order_type={config.real_order_type}, "
@@ -1474,7 +1545,11 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
         now = utc_now()
 
         try:
-            if open_position and int(now.timestamp()) >= open_position.event_end_ts + config.settle_delay_seconds:
+            if (
+                open_position
+                and open_position.status == "OPEN"
+                and int(now.timestamp()) >= open_position.event_end_ts + config.settle_delay_seconds
+            ):
                 final_price = fetch_binance_price(config.symbol)
                 closed = settle_position(open_position, final_price, int(now.timestamp()))
                 append_trade_csv(config.trades_csv, closed)
@@ -1493,6 +1568,24 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
                         f"{config.max_real_loss_usdc:.2f} USDC."
                     )
                     break
+
+            if open_position and open_position.status == "PENDING_LIMIT":
+                filled = try_fill_paper_limit_entry(open_position, config, now)
+                if filled is None:
+                    print(
+                        f"[{now.strftime('%H:%M:%S')}] LIMIT CANCELADO {open_position.direction} "
+                        f"limit={open_position.limit_entry_price:.3f}"
+                    )
+                    open_position = None
+                elif filled.status == "OPEN":
+                    open_position = filled
+                    print(
+                        f"[{now.strftime('%H:%M:%S')}] LIMIT EXECUTADO {filled.direction} "
+                        f"contrato={filled.contract_price:.3f} prob={filled.model_probability:.3f} "
+                        f"edge={filled.edge:.3f}"
+                    )
+                time.sleep(config.poll_seconds)
+                continue
 
             if open_position is None:
                 if config.real_mode and real_start_event_ts == config_event_start(config, now):
@@ -1551,13 +1644,23 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
                         time.sleep(config.poll_seconds)
                         continue
 
+                    if paper_limit_entry_enabled(config):
+                        candidate = prepare_paper_limit_entry(candidate, config, now)
+
                     open_position = candidate
                     label = "REAL" if candidate.execution_mode == "REAL" else "PAPER"
-                    print(
-                        f"[{now.strftime('%H:%M:%S')}] ABRIU {label} {candidate.direction} "
-                        f"contrato={candidate.contract_price:.3f} prob={candidate.model_probability:.3f} "
-                        f"edge={candidate.edge:.3f} stake={candidate.stake_usdc:.2f} shares={candidate.shares:.4f}"
-                    )
+                    if candidate.status == "PENDING_LIMIT":
+                        print(
+                            f"[{now.strftime('%H:%M:%S')}] SINAL {label} LIMIT {candidate.direction} "
+                            f"limit={candidate.limit_entry_price:.3f} sinal={candidate.signal_contract_price:.3f} "
+                            f"prob={candidate.model_probability:.3f} edge_limit={candidate.edge:.3f}"
+                        )
+                    else:
+                        print(
+                            f"[{now.strftime('%H:%M:%S')}] ABRIU {label} {candidate.direction} "
+                            f"contrato={candidate.contract_price:.3f} prob={candidate.model_probability:.3f} "
+                            f"edge={candidate.edge:.3f} stake={candidate.stake_usdc:.2f} shares={candidate.shares:.4f}"
+                        )
             else:
                 remaining = max(open_position.event_end_ts - int(now.timestamp()), 0)
                 print(
@@ -1644,6 +1747,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-ema-slope-usd", type=float, default=0.2)
     parser.add_argument("--max-price-ema-fast-distance-usd", type=float, default=80.0)
     parser.add_argument("--stake", type=float, default=10.0)
+    parser.add_argument(
+        "--paper-limit-entry-price",
+        type=float,
+        default=0.0,
+        help="Paper only: se > 0, sinal aprovado vira buy limit nesse preco em vez de entrada imediata.",
+    )
+    parser.add_argument(
+        "--paper-limit-entry-min-seconds-remaining",
+        type=int,
+        default=20,
+        help="Paper only: cancela limit pendente quando restarem estes segundos ou menos no mercado.",
+    )
     parser.add_argument("--settle-delay-seconds", type=int, default=10)
     parser.add_argument("--trades-csv", default="paper_polymarket_5m_trades.csv")
     parser.add_argument(
@@ -1739,6 +1854,8 @@ def main() -> None:
         min_ema_slope_usd=args.min_ema_slope_usd,
         max_price_ema_fast_distance_usd=args.max_price_ema_fast_distance_usd,
         stake_usdc=args.stake,
+        paper_limit_entry_price=args.paper_limit_entry_price,
+        paper_limit_entry_min_seconds_remaining=args.paper_limit_entry_min_seconds_remaining,
         settle_delay_seconds=args.settle_delay_seconds,
         trades_csv=args.trades_csv,
         event_duration_minutes=args.event_duration_minutes,

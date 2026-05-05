@@ -26,6 +26,7 @@ from paper_polymarket_5m_live import (
     parse_allowed_directions,
     parse_excluded_entry_hours,
     place_real_buy_order,
+    prepare_paper_limit_entry,
     recent_abs_move_pct,
     real_order_limit_price,
     release_real_shared_position,
@@ -33,6 +34,7 @@ from paper_polymarket_5m_live import (
     settle_position,
     should_skip_entry_hour,
     target_rejection_direction,
+    try_fill_paper_limit_entry,
 )
 
 
@@ -150,6 +152,86 @@ def test_calculate_order_shares_uses_stake_divided_by_price():
     shares = calculate_order_shares(stake_usdc=5.0, price=0.72)
     assert round(shares, 4) == shares
     assert round(shares * 0.72, 2) == shares * 0.72
+
+
+def test_prepare_paper_limit_entry_keeps_signal_pending_when_price_above_limit():
+    now = datetime(2026, 5, 5, 12, 1, 10, tzinfo=timezone.utc)
+    position = PaperPosition(
+        market_slug="btc-updown-5m-1",
+        event_start_ts=1,
+        event_end_ts=301,
+        direction="UP",
+        token_id="up-token",
+        entry_ts=100,
+        entry_btc_price=101.0,
+        target_price=100.0,
+        contract_price=0.68,
+        model_probability=0.75,
+        edge=0.07,
+        stake_usdc=10.0,
+    )
+
+    pending = prepare_paper_limit_entry(position, LiveConfig(paper_limit_entry_price=0.55), now)
+
+    assert pending.status == "PENDING_LIMIT"
+    assert pending.contract_price == 0.55
+    assert pending.signal_contract_price == 0.68
+    assert pending.limit_entry_price == 0.55
+    assert pending.edge == 0.20
+
+
+def test_prepare_paper_limit_entry_fills_immediately_when_signal_price_is_inside_limit():
+    now = datetime(2026, 5, 5, 12, 1, 10, tzinfo=timezone.utc)
+    position = PaperPosition(
+        market_slug="btc-updown-5m-1",
+        event_start_ts=1,
+        event_end_ts=301,
+        direction="DOWN",
+        token_id="down-token",
+        entry_ts=100,
+        entry_btc_price=99.0,
+        target_price=100.0,
+        contract_price=0.54,
+        model_probability=0.65,
+        edge=0.11,
+        stake_usdc=10.0,
+    )
+
+    opened = prepare_paper_limit_entry(position, LiveConfig(paper_limit_entry_price=0.55), now)
+
+    assert opened.status == "OPEN"
+    assert opened.contract_price == 0.55
+    assert opened.order_status == "FILLED_LIMIT_IMMEDIATE"
+
+
+def test_try_fill_paper_limit_entry_opens_when_contract_touches_limit(monkeypatch):
+    now = datetime(2026, 5, 5, 12, 2, 0, tzinfo=timezone.utc)
+    position = PaperPosition(
+        market_slug="btc-updown-5m-1",
+        event_start_ts=int(now.timestamp()) - 120,
+        event_end_ts=int(now.timestamp()) + 120,
+        direction="UP",
+        token_id="up-token",
+        entry_ts=int(now.timestamp()) - 60,
+        entry_btc_price=101.0,
+        target_price=100.0,
+        contract_price=0.55,
+        model_probability=0.75,
+        edge=0.20,
+        stake_usdc=10.0,
+        status="PENDING_LIMIT",
+        limit_entry_price=0.55,
+        signal_contract_price=0.68,
+    )
+    monkeypatch.setattr(live, "fetch_buy_price", lambda token_id: 0.55)
+    monkeypatch.setattr(live, "fetch_binance_price", lambda symbol: 102.0)
+
+    opened = try_fill_paper_limit_entry(position, LiveConfig(paper_limit_entry_price=0.55), now)
+
+    assert opened is not None
+    assert opened.status == "OPEN"
+    assert opened.entry_btc_price == 102.0
+    assert opened.order_status == "FILLED_LIMIT"
 
 
 def test_real_shared_lock_blocks_second_strategy_in_same_market(tmp_path):

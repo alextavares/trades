@@ -258,6 +258,16 @@ def test_edge3_candidate_variants_are_registered_as_active_papers():
             "paper_edge3_down_only_polymarket_5m_trades.csv",
             "paper_edge3_down_only_polymarket_5m_live.log",
         ),
+        "edge3_limit55": (
+            "Edge 3% limit 0.55",
+            "paper_edge3_limit55_polymarket_5m_trades.csv",
+            "paper_edge3_limit55_polymarket_5m_live.log",
+        ),
+        "edge3_limit60": (
+            "Edge 3% limit 0.60",
+            "paper_edge3_limit60_polymarket_5m_trades.csv",
+            "paper_edge3_limit60_polymarket_5m_live.log",
+        ),
         "edge3_eth": (
             "ETH Edge 3%",
             "paper_edge3_eth_polymarket_5m_trades.csv",
