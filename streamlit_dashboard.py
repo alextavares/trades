@@ -760,7 +760,7 @@ def read_trades_from_rows(rows: list[list[str]], header: list[str], source: Stra
 def read_trades(source: StrategySource) -> pd.DataFrame:
     if source.kind == "REAL":
         for remote_path in remote_csv_candidates(source):
-            remote_content = run_remote_command(f"cat {remote_path}", timeout=15)
+            remote_content = run_remote_command(f"cat {remote_path}", timeout=45)
             if remote_content and remote_content.strip():
                 reader = csv.reader(StringIO(remote_content))
                 header = next(reader, [])
