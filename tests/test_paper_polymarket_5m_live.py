@@ -492,6 +492,67 @@ def test_build_clob_client_uses_py_clob_for_non_deposit_wallet(monkeypatch):
     assert live.build_clob_client(config) is sentinel
 
 
+def test_build_polynode_real_client_uses_ensure_ready_when_polynode_key_exists(monkeypatch):
+    config = LiveConfig(trades_csv="real_poly_odds_momentum_60s_trades.csv")
+    sentinel = object()
+
+    class FakeReadyStatus:
+        funder_address = "0xfunder"
+
+    class FakeTrader:
+        def __init__(self, trader_config):
+            self.config = trader_config
+
+        def ensure_ready(self, signer):
+            assert signer == "0xpk"
+            return FakeReadyStatus()
+
+        def refresh_balance_allowance(self):
+            return (True, 200)
+
+    monkeypatch.setenv("PK", "0xpk")
+    monkeypatch.setenv("FUNDER", "0xfunder")
+    monkeypatch.setenv("POLYNODE_KEY", "pn_live_test")
+    monkeypatch.setattr(live, "PolyNodeTrader", FakeTrader)
+    monkeypatch.setattr(live, "PolyNodeRealOrderClient", lambda trader: sentinel)
+    monkeypatch.setattr(live.asyncio, "run", lambda value: value)
+
+    assert live.build_polynode_real_client(config) is sentinel
+
+
+def test_build_polynode_real_client_falls_back_to_manual_link_without_polynode_key(monkeypatch):
+    config = LiveConfig(trades_csv="real_poly_odds_momentum_60s_trades.csv")
+    sentinel = object()
+
+    class FakeSigner:
+        address = "0xwallet"
+
+    class FakeLinkResult:
+        funder_address = "0xfunder"
+
+    class FakeTrader:
+        def __init__(self, trader_config):
+            self.config = trader_config
+            self.unlinked = None
+
+        def unlink_wallet(self, address):
+            self.unlinked = address
+
+        def link_wallet(self, signer, type=None):
+            assert signer == "0xpk"
+            return FakeLinkResult()
+
+    monkeypatch.setenv("PK", "0xpk")
+    monkeypatch.setenv("FUNDER", "0xfunder")
+    monkeypatch.delenv("POLYNODE_KEY", raising=False)
+    monkeypatch.setattr(live, "PolyNodeTrader", FakeTrader)
+    monkeypatch.setattr(live, "PolyNodeRealOrderClient", lambda trader: sentinel)
+    monkeypatch.setattr(live, "polynode_normalize_signer", lambda pk, sig_type: FakeSigner())
+    monkeypatch.setattr(live.asyncio, "run", lambda value: value)
+
+    assert live.build_polynode_real_client(config) is sentinel
+
+
 def test_place_real_buy_order_accepts_backend_wrapper_response():
     class FakeBackend:
         def post_limit_buy(self, token_id, limit_price, shares, market, order_type_name):

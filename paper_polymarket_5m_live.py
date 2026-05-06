@@ -1125,15 +1125,33 @@ def build_polynode_real_client(config: LiveConfig):
 
     pk = required_env("PK")
     env_funder = os.getenv("FUNDER", "").strip()
-    wallet_signer = asyncio.run(polynode_normalize_signer(pk, PolyNodeSignatureType.POLY_1271))
-
-    trader = PolyNodeTrader(
-        PolyNodeTraderConfig(
-            default_signature_type=PolyNodeSignatureType.POLY_1271,
-            exchange_version=PolyNodeExchangeVersion.V2,
-            db_path=str(Path(config.trades_csv).with_suffix(".polynode.db")),
-        )
+    polynode_key = os.getenv("POLYNODE_KEY", "").strip()
+    trader_config = PolyNodeTraderConfig(
+        default_signature_type=PolyNodeSignatureType.POLY_1271,
+        exchange_version=PolyNodeExchangeVersion.V2,
+        db_path=str(Path(config.trades_csv).with_suffix(".polynode.db")),
     )
+    if polynode_key:
+        trader_config.polynode_key = polynode_key
+
+    trader = PolyNodeTrader(trader_config)
+    if polynode_key:
+        ready_status = asyncio.run(trader.ensure_ready(pk))
+        actual_funder = ready_status.funder_address
+        if env_funder and actual_funder.lower() != env_funder.lower():
+            print(
+                f"AVISO POLYNODE: FUNDER do .env ({env_funder}) difere do funder derivado ({actual_funder}). "
+                "Usando o funder derivado."
+            )
+        try:
+            refresh_ok, _ = asyncio.run(trader.refresh_balance_allowance())
+            if not refresh_ok:
+                print("AVISO POLYNODE: refresh_balance_allowance retornou False.")
+        except Exception as exc:
+            print(f"AVISO POLYNODE: falha ao atualizar cache de balance/allowance: {exc}")
+        return PolyNodeRealOrderClient(trader)
+
+    wallet_signer = asyncio.run(polynode_normalize_signer(pk, PolyNodeSignatureType.POLY_1271))
     trader.unlink_wallet(wallet_signer.address)
     link_result = asyncio.run(trader.link_wallet(pk, type=PolyNodeSignatureType.POLY_1271))
     if env_funder and link_result.funder_address.lower() != env_funder.lower():

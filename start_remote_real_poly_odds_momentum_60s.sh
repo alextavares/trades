@@ -13,31 +13,50 @@ if [ ! -f "$env_file" ]; then
 fi
 
 venv/bin/python - <<'PY'
+import asyncio
 import os
 from decimal import Decimal
 
 from dotenv import load_dotenv
 from py_clob_client_v2 import ApiCreds, ClobClient
 from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
+from polynode.trading import ExchangeVersion, PolyNodeTrader, SignatureType, TraderConfig
 
 load_dotenv(".env.real_poly_odds_momentum_60s", override=True)
-creds = ApiCreds(os.environ["API_KEY"], os.environ["API_SECRET"], os.environ["API_PASSPHRASE"])
-client = ClobClient(
-    host="https://clob.polymarket.com",
-    chain_id=137,
-    key=os.environ["PK"],
-    creds=creds,
-    signature_type=1,
-    funder=os.getenv("FUNDER"),
-)
-client.get_api_keys()
-balance = client.get_balance_allowance(
-    BalanceAllowanceParams(asset_type=AssetType.COLLATERAL, signature_type=1)
-)
-raw_balance = Decimal(str(balance.get("balance", "0")))
-if raw_balance <= 0:
-    raise SystemExit("CLOB preflight failed: usable collateral balance is zero for this env/funder")
-print("CLOB preflight OK")
+polynode_key = os.getenv("POLYNODE_KEY", "").strip()
+if polynode_key:
+    trader = PolyNodeTrader(
+        TraderConfig(
+            polynode_key=polynode_key,
+            exchange_version=ExchangeVersion.V2,
+            db_path="preflight_real_poly_odds_momentum_60s.polynode.db",
+        )
+    )
+    status = asyncio.run(trader.ensure_ready(os.environ["PK"]))
+    usdc_raw = Decimal(str(trader.get_usdce_balance()))
+    polyusd_raw = Decimal(str(trader.get_polyusd_balance()))
+    asyncio.run(trader.refresh_balance_allowance())
+    if usdc_raw <= 0 and polyusd_raw <= 0:
+        raise SystemExit("PolyNode preflight failed: wallet has zero USDC.e and zero pUSD")
+    print(f"PolyNode preflight OK sig_type={status.signature_type} usdc_raw={usdc_raw} polyusd_raw={polyusd_raw}")
+else:
+    creds = ApiCreds(os.environ["API_KEY"], os.environ["API_SECRET"], os.environ["API_PASSPHRASE"])
+    client = ClobClient(
+        host="https://clob.polymarket.com",
+        chain_id=137,
+        key=os.environ["PK"],
+        creds=creds,
+        signature_type=1,
+        funder=os.getenv("FUNDER"),
+    )
+    client.get_api_keys()
+    balance = client.get_balance_allowance(
+        BalanceAllowanceParams(asset_type=AssetType.COLLATERAL, signature_type=1)
+    )
+    raw_balance = Decimal(str(balance.get("balance", "0")))
+    if raw_balance <= 0:
+        raise SystemExit("CLOB preflight failed: usable collateral balance is zero for this env/funder")
+    print("CLOB preflight OK")
 PY
 
 pkill -f "paper_polymarket_5m_live.py.*${csv}" || true
@@ -65,7 +84,7 @@ nohup venv/bin/python -u paper_polymarket_5m_live.py \
   --odds-momentum-opposite-move 0.05 \
   --real-order-type FAK \
   --real-price-slippage 0.01 \
-  --real-signature-type 1 \
+  --real-signature-type 3 \
   --stake 5 \
   --max-real-trades 999999 \
   --max-open-positions 1 \
