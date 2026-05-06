@@ -12,6 +12,34 @@ if [ ! -f "$env_file" ]; then
   exit 1
 fi
 
+venv/bin/python - <<'PY'
+import os
+from decimal import Decimal
+
+from dotenv import load_dotenv
+from py_clob_client_v2 import ApiCreds, ClobClient
+from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
+
+load_dotenv(".env.real_poly_odds_momentum_60s", override=True)
+creds = ApiCreds(os.environ["API_KEY"], os.environ["API_SECRET"], os.environ["API_PASSPHRASE"])
+client = ClobClient(
+    host="https://clob.polymarket.com",
+    chain_id=137,
+    key=os.environ["PK"],
+    creds=creds,
+    signature_type=1,
+    funder=os.getenv("FUNDER"),
+)
+client.get_api_keys()
+balance = client.get_balance_allowance(
+    BalanceAllowanceParams(asset_type=AssetType.COLLATERAL, signature_type=1)
+)
+raw_balance = Decimal(str(balance.get("balance", "0")))
+if raw_balance <= 0:
+    raise SystemExit("CLOB preflight failed: usable collateral balance is zero for this env/funder")
+print("CLOB preflight OK")
+PY
+
 pkill -f "paper_polymarket_5m_live.py.*${csv}" || true
 rm -f "${name}.pid"
 
@@ -37,7 +65,7 @@ nohup venv/bin/python -u paper_polymarket_5m_live.py \
   --odds-momentum-opposite-move 0.05 \
   --real-order-type FAK \
   --real-price-slippage 0.01 \
-  --real-signature-type 3 \
+  --real-signature-type 1 \
   --stake 5 \
   --max-real-trades 999999 \
   --max-open-positions 1 \
