@@ -21,9 +21,9 @@ nohup venv/bin/python -u paper_polymarket_5m_live.py \
   --strategy poly-75-breakout \
   --poll-seconds 2 \
   --min-contract-price 0.75 \
-  --max-contract-price 0.78 \
+  --max-contract-price 0.99 \
   --poly-breakout-trigger-price 0.75 \
-  --poly-breakout-min-seconds-remaining 90 \
+  --poly-breakout-min-seconds-remaining 1 \
   --stake 5 \
   --trades-csv "$csv" \
   > "${name}.log" \
