@@ -22,6 +22,8 @@ from streamlit_dashboard import (
     match_source_by_command,
     METRIC_COLUMNS_PER_ROW,
     normalize_visible_columns,
+    remote_real_openssh_config,
+    run_remote_command,
     RECENT_TRADE_LIMIT,
     RECENT_TRADE_COLUMNS,
     refresh_run_every,
@@ -449,8 +451,48 @@ def test_real_strategy_sources_are_registered_separately():
     assert ema_trend.kind == "REAL"
     assert poly_odds.label == "Real Poly odds 60s"
     assert poly_odds.csv_name == "real_poly_odds_momentum_60s_trades.csv"
-    assert poly_odds.log_name == "real_poly_odds_momentum_60s_live.log"
+    assert poly_odds.log_name == "real_poly_odds_momentum_60s_main_live.log"
     assert poly_odds.kind == "REAL"
+
+
+def test_remote_real_openssh_config_uses_default_key(monkeypatch, tmp_path):
+    key = tmp_path / "fintechtrading_vps_ed25519"
+    key.write_text("key", encoding="utf-8")
+    monkeypatch.delenv("REMOTE_REAL_SSH_HOST", raising=False)
+    monkeypatch.delenv("REMOTE_REAL_SSH_USER", raising=False)
+    monkeypatch.setenv("REMOTE_REAL_SSH_KEY", str(key))
+
+    config = remote_real_openssh_config()
+
+    assert config == {
+        "host": "208.85.18.176",
+        "user": "root",
+        "key": str(key),
+    }
+
+
+def test_run_remote_command_falls_back_to_openssh(monkeypatch, tmp_path):
+    key = tmp_path / "fintechtrading_vps_ed25519"
+    key.write_text("key", encoding="utf-8")
+    calls = []
+
+    class Result:
+        returncode = 0
+        stdout = "remote-output"
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return Result()
+
+    monkeypatch.delenv("REMOTE_REAL_SSH_PASSWORD", raising=False)
+    monkeypatch.setenv("REMOTE_REAL_SSH_KEY", str(key))
+    monkeypatch.setattr("streamlit_dashboard.PLINK_PATH", tmp_path / "missing-plink.exe")
+    monkeypatch.setattr("streamlit_dashboard.openssh_executable", lambda: "ssh")
+    monkeypatch.setattr("streamlit_dashboard.subprocess.run", fake_run)
+
+    assert run_remote_command("cat /tmp/file") == "remote-output"
+    assert calls[0][:3] == ["ssh", "-i", str(key)]
+    assert calls[0][-1] == "cat /tmp/file"
 
 
 def test_mt5_demo_sources_are_registered_separately():

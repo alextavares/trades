@@ -6,6 +6,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -20,6 +21,9 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parent
 LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
 PLINK_PATH = Path(r"C:\Program Files\PuTTY\plink.exe")
+GIT_SSH_PATH = Path(r"C:\Program Files\Git\usr\bin\ssh.exe")
+DEFAULT_REMOTE_REAL_SSH_HOST = "208.85.18.176"
+DEFAULT_REMOTE_REAL_SSH_KEY = Path.home() / ".ssh" / "fintechtrading_vps_ed25519"
 REMOTE_REAL_KEY = "real"
 REMOTE_REAL_DIR = "/root/fintechtrading_real"
 REMOTE_REAL_CSV_PATH = f"{REMOTE_REAL_DIR}/real_polymarket_5m_trades.csv"
@@ -346,7 +350,7 @@ SOURCES = [
         "real_poly_odds_momentum_60s",
         "Real Poly odds 60s",
         "real_poly_odds_momentum_60s_trades.csv",
-        "real_poly_odds_momentum_60s_live.log",
+        "real_poly_odds_momentum_60s_main_live.log",
         "REAL",
     ),
 ]
@@ -581,21 +585,66 @@ def remote_real_config() -> dict[str, str] | None:
     return None
 
 
+def remote_real_openssh_config() -> dict[str, str] | None:
+    key_path = Path(os.getenv("REMOTE_REAL_SSH_KEY", str(DEFAULT_REMOTE_REAL_SSH_KEY))).expanduser()
+    config = {
+        "host": os.getenv("REMOTE_REAL_SSH_HOST", DEFAULT_REMOTE_REAL_SSH_HOST).strip(),
+        "user": os.getenv("REMOTE_REAL_SSH_USER", "root").strip(),
+        "key": str(key_path),
+    }
+    if config["host"] and config["user"] and key_path.exists():
+        return config
+    return None
+
+
+def openssh_executable() -> str | None:
+    if GIT_SSH_PATH.exists():
+        return str(GIT_SSH_PATH)
+    return shutil.which("ssh")
+
+
 def run_remote_command(command: str, timeout: int = 12) -> str | None:
     config = remote_real_config()
-    if not config or not PLINK_PATH.exists():
+    if config and PLINK_PATH.exists():
+        try:
+            result = subprocess.run(
+                [
+                    str(PLINK_PATH),
+                    "-ssh",
+                    "-batch",
+                    "-hostkey",
+                    config["hostkey"],
+                    "-pw",
+                    config["password"],
+                    f'{config["user"]}@{config["host"]}',
+                    command,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            result = None
+        if result is not None and result.returncode == 0:
+            return result.stdout
+
+    ssh_config = remote_real_openssh_config()
+    ssh_path = openssh_executable()
+    if not ssh_config or not ssh_path:
         return None
     try:
         result = subprocess.run(
             [
-                str(PLINK_PATH),
-                "-ssh",
-                "-batch",
-                "-hostkey",
-                config["hostkey"],
-                "-pw",
-                config["password"],
-                f'{config["user"]}@{config["host"]}',
+                ssh_path,
+                "-i",
+                ssh_config["key"],
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                "IdentitiesOnly=yes",
+                f'{ssh_config["user"]}@{ssh_config["host"]}',
                 command,
             ],
             cwd=ROOT,
@@ -622,6 +671,8 @@ def remote_log_candidates(source: StrategySource) -> list[str]:
     candidates = [f"{REMOTE_REAL_DIR}/{source.log_name}"]
     if source.key == "real_edge3":
         candidates.append(REMOTE_REAL_LOG_PATH)
+    if source.key == "real_poly_odds_momentum_60s":
+        candidates.append(f"{REMOTE_REAL_DIR}/real_poly_odds_momentum_60s_live.log")
     return candidates
 
 
