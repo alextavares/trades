@@ -29,6 +29,7 @@ from paper_polymarket_5m_live import (
     parse_excluded_entry_hours,
     place_real_buy_order,
     prepare_paper_limit_entry,
+    prepare_paper_realistic_entry,
     recent_abs_move_pct,
     real_order_limit_price,
     RealOrderSubmissionUncertain,
@@ -325,6 +326,76 @@ def test_try_fill_paper_limit_entry_opens_when_contract_touches_limit(monkeypatc
     assert opened.status == "OPEN"
     assert opened.entry_btc_price == 102.0
     assert opened.order_status == "FILLED_LIMIT"
+
+
+def test_prepare_paper_realistic_entry_uses_current_price_plus_slippage(monkeypatch):
+    now = datetime(2026, 5, 6, 12, 1, 10, tzinfo=timezone.utc)
+    position = PaperPosition(
+        market_slug="btc-updown-5m-1",
+        event_start_ts=1,
+        event_end_ts=301,
+        direction="UP",
+        token_id="up-token",
+        entry_ts=100,
+        entry_btc_price=101.0,
+        target_price=100.0,
+        contract_price=0.60,
+        model_probability=0.72,
+        edge=0.12,
+        stake_usdc=5.0,
+    )
+    monkeypatch.setattr(live, "fetch_buy_price", lambda token_id: 0.64)
+
+    opened = prepare_paper_realistic_entry(
+        position,
+        LiveConfig(
+            paper_realistic_entry=True,
+            paper_realistic_price_slippage=0.01,
+            paper_realistic_max_entry_price=0.67,
+        ),
+        now,
+    )
+
+    assert opened is not None
+    assert opened.status == "OPEN"
+    assert opened.contract_price == 0.65
+    assert opened.signal_contract_price == 0.60
+    assert opened.limit_entry_price == 0.67
+    assert opened.edge == 0.07
+    assert opened.shares == 7.6
+    assert opened.order_status == "PAPER_REALISTIC_FILL"
+    assert opened.order_response == "current_price=0.640; simulated_slippage=0.010; max_entry=0.670"
+
+
+def test_prepare_paper_realistic_entry_skips_when_simulated_price_exceeds_cap(monkeypatch):
+    now = datetime(2026, 5, 6, 12, 1, 10, tzinfo=timezone.utc)
+    position = PaperPosition(
+        market_slug="btc-updown-5m-1",
+        event_start_ts=1,
+        event_end_ts=301,
+        direction="DOWN",
+        token_id="down-token",
+        entry_ts=100,
+        entry_btc_price=99.0,
+        target_price=100.0,
+        contract_price=0.64,
+        model_probability=0.74,
+        edge=0.10,
+        stake_usdc=5.0,
+    )
+    monkeypatch.setattr(live, "fetch_buy_price", lambda token_id: 0.66)
+
+    opened = prepare_paper_realistic_entry(
+        position,
+        LiveConfig(
+            paper_realistic_entry=True,
+            paper_realistic_price_slippage=0.02,
+            paper_realistic_max_entry_price=0.67,
+        ),
+        now,
+    )
+
+    assert opened is None
 
 
 def test_real_shared_lock_blocks_second_strategy_in_same_market(tmp_path):

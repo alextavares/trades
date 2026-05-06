@@ -110,6 +110,9 @@ class LiveConfig:
     stake_usdc: float = 10.0
     paper_limit_entry_price: float = 0.0
     paper_limit_entry_min_seconds_remaining: int = 20
+    paper_realistic_entry: bool = False
+    paper_realistic_price_slippage: float = 0.0
+    paper_realistic_max_entry_price: float = 0.0
     odds_momentum_observation_seconds: int = 60
     odds_momentum_min_move: float = 0.08
     odds_momentum_opposite_move: float = 0.05
@@ -1363,6 +1366,51 @@ def paper_limit_entry_enabled(config: LiveConfig) -> bool:
     return config.paper_limit_entry_price > 0 and not config.real_mode
 
 
+def paper_realistic_entry_enabled(config: LiveConfig) -> bool:
+    return config.paper_realistic_entry and not config.real_mode
+
+
+def paper_realistic_entry_cap(config: LiveConfig) -> float:
+    if config.paper_realistic_max_entry_price > 0:
+        return config.paper_realistic_max_entry_price
+    return config.max_contract_price
+
+
+def prepare_paper_realistic_entry(
+    position: PaperPosition,
+    config: LiveConfig,
+    now: datetime,
+) -> PaperPosition | None:
+    current_contract_price = fetch_buy_price(position.token_id)
+    entry_price = round(current_contract_price + max(config.paper_realistic_price_slippage, 0.0), 3)
+    max_entry_price = round(paper_realistic_entry_cap(config), 3)
+    if entry_price > max_entry_price:
+        print(
+            f"[{now.strftime('%H:%M:%S')}] PAPER REALISTIC SKIP {position.direction} "
+            f"sinal={position.contract_price:.3f} atual={current_contract_price:.3f} "
+            f"entrada={entry_price:.3f} max={max_entry_price:.3f}"
+        )
+        return None
+
+    signal_contract_price = position.contract_price
+    return replace(
+        position,
+        status="OPEN",
+        entry_ts=int(now.timestamp()),
+        contract_price=entry_price,
+        edge=round(position.model_probability - entry_price, 10),
+        signal_contract_price=signal_contract_price,
+        limit_entry_price=max_entry_price,
+        shares=calculate_order_shares(position.stake_usdc, entry_price),
+        order_status="PAPER_REALISTIC_FILL",
+        order_response=(
+            f"current_price={current_contract_price:.3f}; "
+            f"simulated_slippage={max(config.paper_realistic_price_slippage, 0.0):.3f}; "
+            f"max_entry={max_entry_price:.3f}"
+        ),
+    )
+
+
 def prepare_paper_limit_entry(position: PaperPosition, config: LiveConfig, now: datetime) -> PaperPosition:
     limit_price = round(config.paper_limit_entry_price, 3)
     current_signal_price = position.contract_price
@@ -1784,6 +1832,12 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
             f"{config.paper_limit_entry_price:.3f}; cancela com "
             f"{config.paper_limit_entry_min_seconds_remaining}s restantes."
         )
+    if paper_realistic_entry_enabled(config):
+        print(
+            f"PAPER REALISTIC: refaz preco no momento da execucao, adiciona "
+            f"{config.paper_realistic_price_slippage:.3f} de slippage e pula acima de "
+            f"{paper_realistic_entry_cap(config):.3f}."
+        )
     if config.real_mode:
         print(
             f"REAL: stake={config.stake_usdc:.2f} USDC, order_type={config.real_order_type}, "
@@ -1917,8 +1971,14 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
                         time.sleep(config.poll_seconds)
                         continue
 
-                    if paper_limit_entry_enabled(config):
+                    if paper_realistic_entry_enabled(config):
+                        candidate = prepare_paper_realistic_entry(candidate, config, now)
+                    elif paper_limit_entry_enabled(config):
                         candidate = prepare_paper_limit_entry(candidate, config, now)
+
+                    if candidate is None:
+                        time.sleep(config.poll_seconds)
+                        continue
 
                     open_position = candidate
                     label = "REAL" if candidate.execution_mode == "REAL" else "PAPER"
@@ -2034,6 +2094,23 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=20,
         help="Paper only: cancela limit pendente quando restarem estes segundos ou menos no mercado.",
     )
+    parser.add_argument(
+        "--paper-realistic-entry",
+        action="store_true",
+        help="Paper only: simula execucao real usando preco atual mais slippage; pula se passar do cap.",
+    )
+    parser.add_argument(
+        "--paper-realistic-price-slippage",
+        type=float,
+        default=0.0,
+        help="Paper realistic: penalidade somada ao preco atual antes de abrir. Ex: 0.01 = 1 cent.",
+    )
+    parser.add_argument(
+        "--paper-realistic-max-entry-price",
+        type=float,
+        default=0.0,
+        help="Paper realistic: preco maximo executavel. 0 usa --max-contract-price.",
+    )
     parser.add_argument("--odds-momentum-observation-seconds", type=int, default=60)
     parser.add_argument("--odds-momentum-min-move", type=float, default=0.08)
     parser.add_argument("--odds-momentum-opposite-move", type=float, default=0.05)
@@ -2136,6 +2213,9 @@ def main() -> None:
         stake_usdc=args.stake,
         paper_limit_entry_price=args.paper_limit_entry_price,
         paper_limit_entry_min_seconds_remaining=args.paper_limit_entry_min_seconds_remaining,
+        paper_realistic_entry=args.paper_realistic_entry,
+        paper_realistic_price_slippage=args.paper_realistic_price_slippage,
+        paper_realistic_max_entry_price=args.paper_realistic_max_entry_price,
         odds_momentum_observation_seconds=args.odds_momentum_observation_seconds,
         odds_momentum_min_move=args.odds_momentum_min_move,
         odds_momentum_opposite_move=args.odds_momentum_opposite_move,

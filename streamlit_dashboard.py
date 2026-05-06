@@ -138,6 +138,12 @@ SOURCES = [
         "paper_poly_odds_momentum_90s_live.log",
     ),
     StrategySource(
+        "poly_odds_momentum_60s_realistic",
+        "Poly odds 60s realista",
+        "paper_poly_odds_momentum_60s_realistic_trades.csv",
+        "paper_poly_odds_momentum_60s_realistic_live.log",
+    ),
+    StrategySource(
         "poly_75_breakout",
         "Poly 75 breakout",
         "paper_poly_75_breakout_trades.csv",
