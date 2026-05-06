@@ -22,6 +22,7 @@ from streamlit_dashboard import (
     match_source_by_command,
     METRIC_COLUMNS_PER_ROW,
     normalize_visible_columns,
+    RECENT_TRADE_LIMIT,
     RECENT_TRADE_COLUMNS,
     refresh_run_every,
     save_dashboard_prefs,
@@ -40,6 +41,10 @@ def test_summary_table_height_is_tall_enough_for_dashboard():
 
 def test_metric_row_uses_responsive_column_count():
     assert METRIC_COLUMNS_PER_ROW <= 2
+
+
+def test_recent_trade_limit_keeps_older_strategy_rows_visible():
+    assert RECENT_TRADE_LIMIT >= 100
 
 
 def test_summary_columns_are_declared_for_sidebar_control():

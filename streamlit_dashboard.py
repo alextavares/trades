@@ -40,6 +40,7 @@ MATRIX_SUMMARY_PATH = ROOT / "backtest_polymarket_5m_matrix_summary.csv"
 SUMMARY_TABLE_HEIGHT = 760
 METRIC_COLUMNS_PER_ROW = 2
 DASHBOARD_PREFS_PATH = ROOT / ".streamlit_dashboard_prefs.json"
+RECENT_TRADE_LIMIT = 100
 SUMMARY_COLUMNS = [
     "Estrategia",
     "Tipo",
@@ -1130,7 +1131,7 @@ def main() -> None:
         if active_trades.empty:
             st.info("Ainda nao ha trades fechados nos CSVs.")
         else:
-            recent = active_trades.sort_values("entry_dt", ascending=False, na_position="last").head(20)
+            recent = active_trades.sort_values("entry_dt", ascending=False, na_position="last").head(RECENT_TRADE_LIMIT)
             available = dataframe_visible_columns(recent, recent_columns, RECENT_TRADE_COLUMNS)
             st.dataframe(recent[available], use_container_width=True, hide_index=True)
 
