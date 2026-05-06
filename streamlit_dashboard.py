@@ -58,7 +58,6 @@ SUMMARY_COLUMNS = [
     "CSV",
 ]
 LOCAL_MONITORED_SOURCE_KEYS = (
-    "binance_ema_scalp",
     "binance_spot_momentum",
     "mt5_us500_base",
     "mt5_us500_candidate",
@@ -109,9 +108,10 @@ SOURCES = [
     ),
     StrategySource(
         "edge3_limit55",
-        "Edge 3% limit 0.55",
+        "[FAILED] Edge 3% limit 0.55",
         "paper_edge3_limit55_polymarket_5m_trades.csv",
         "paper_edge3_limit55_polymarket_5m_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "edge3_limit60",
@@ -281,9 +281,10 @@ SOURCES = [
     ),
     StrategySource(
         "binance_ema_scalp",
-        "Binance EMA scalp",
+        "[FAILED] Binance EMA scalp",
         "paper_binance_ema_scalp_live_trades.csv",
         "paper_binance_ema_scalp_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "binance_spot_momentum",

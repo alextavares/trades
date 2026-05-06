@@ -265,11 +265,6 @@ def test_edge3_candidate_variants_are_registered_as_active_papers():
             "paper_edge3_down_only_polymarket_5m_trades.csv",
             "paper_edge3_down_only_polymarket_5m_live.log",
         ),
-        "edge3_limit55": (
-            "Edge 3% limit 0.55",
-            "paper_edge3_limit55_polymarket_5m_trades.csv",
-            "paper_edge3_limit55_polymarket_5m_live.log",
-        ),
         "edge3_limit60": (
             "Edge 3% limit 0.60",
             "paper_edge3_limit60_polymarket_5m_trades.csv",
@@ -305,12 +300,22 @@ def test_edge3_candidate_variants_are_registered_as_active_papers():
         assert source.kind == "PAPER"
 
 
+def test_edge3_limit55_source_is_failed():
+    source = next(item for item in SOURCES if item.key == "edge3_limit55")
+
+    assert source.label == "[FAILED] Edge 3% limit 0.55"
+    assert source.csv_name == "paper_edge3_limit55_polymarket_5m_trades.csv"
+    assert source.log_name == "paper_edge3_limit55_polymarket_5m_live.log"
+    assert source.kind == "FAILED TEST"
+
+
 def test_binance_ema_scalp_source_is_registered():
     source = next(item for item in SOURCES if item.key == "binance_ema_scalp")
 
-    assert source.label == "Binance EMA scalp"
+    assert source.label == "[FAILED] Binance EMA scalp"
     assert source.csv_name == "paper_binance_ema_scalp_live_trades.csv"
     assert source.log_name == "paper_binance_ema_scalp_live.log"
+    assert source.kind == "FAILED TEST"
 
 
 def test_binance_spot_momentum_source_is_registered_for_trade_results():
@@ -556,7 +561,7 @@ def test_append_monitored_local_status_rows_marks_missing_local_bots_down():
     }
 
     assert status_by_label["Binance Spot Momentum"] == "RUNNING"
-    assert status_by_label["Binance EMA scalp"] == "DOWN"
+    assert "[FAILED] Binance EMA scalp" not in status_by_label
     assert status_by_label["MT5 US500 base"] == "DOWN"
     assert status_by_label["MT5 US500 candidato"] == "DOWN"
 
