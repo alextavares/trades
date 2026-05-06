@@ -133,6 +133,12 @@ SOURCES = [
         "paper_poly_odds_momentum_90s_live.log",
     ),
     StrategySource(
+        "poly_75_breakout",
+        "Poly 75 breakout",
+        "paper_poly_75_breakout_trades.csv",
+        "paper_poly_75_breakout_live.log",
+    ),
+    StrategySource(
         "edge3_value",
         "Edge 3% valor",
         "paper_edge3_value_polymarket_5m_trades.csv",

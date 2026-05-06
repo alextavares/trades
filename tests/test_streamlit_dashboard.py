@@ -283,6 +283,11 @@ def test_edge3_candidate_variants_are_registered_as_active_papers():
             "paper_poly_odds_momentum_90s_trades.csv",
             "paper_poly_odds_momentum_90s_live.log",
         ),
+        "poly_75_breakout": (
+            "Poly 75 breakout",
+            "paper_poly_75_breakout_trades.csv",
+            "paper_poly_75_breakout_live.log",
+        ),
     }
 
     for key, (label, csv_name, log_name) in expected.items():

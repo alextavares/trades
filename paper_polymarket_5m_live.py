@@ -113,6 +113,8 @@ class LiveConfig:
     odds_momentum_observation_seconds: int = 60
     odds_momentum_min_move: float = 0.08
     odds_momentum_opposite_move: float = 0.05
+    poly_breakout_trigger_price: float = 0.75
+    poly_breakout_min_seconds_remaining: int = 90
     settle_delay_seconds: int = 10
     trades_csv: str = "paper_polymarket_5m_trades.csv"
     event_duration_minutes: int = 5
@@ -623,6 +625,83 @@ def evaluate_poly_odds_momentum_entry(config: LiveConfig, now: datetime) -> Pape
         f"up={current_up:.3f}({current_up - anchor_up:+.3f}) "
         f"down={current_down:.3f}({current_down - anchor_down:+.3f}) "
         f"anchor_up={anchor_up:.3f} anchor_down={anchor_down:.3f}"
+    )
+    if decision.direction == "HOLD":
+        return None
+
+    token_id = market.up_token_id if decision.direction == "UP" else market.down_token_id
+    return PaperPosition(
+        market_slug=market.slug,
+        event_start_ts=market.event_start_ts,
+        event_end_ts=market.event_end_ts,
+        direction=decision.direction,
+        token_id=token_id,
+        entry_ts=int(now.timestamp()),
+        entry_btc_price=0.0,
+        target_price=0.5,
+        contract_price=decision.contract_price,
+        model_probability=decision.probability,
+        edge=decision.edge,
+        stake_usdc=config.stake_usdc,
+    )
+
+
+def decide_poly_75_breakout(current_up: float, current_down: float, config: LiveConfig) -> TradeDecision:
+    candidates: list[TradeDecision] = []
+
+    if (
+        "UP" in config.allowed_directions
+        and config.poly_breakout_trigger_price <= current_up <= config.max_contract_price
+    ):
+        candidates.append(
+            TradeDecision(
+                direction="UP",
+                probability=current_up,
+                contract_price=current_up,
+                edge=round(current_up - config.poly_breakout_trigger_price, 10),
+            )
+        )
+
+    if (
+        "DOWN" in config.allowed_directions
+        and config.poly_breakout_trigger_price <= current_down <= config.max_contract_price
+    ):
+        candidates.append(
+            TradeDecision(
+                direction="DOWN",
+                probability=current_down,
+                contract_price=current_down,
+                edge=round(current_down - config.poly_breakout_trigger_price, 10),
+            )
+        )
+
+    if not candidates:
+        return TradeDecision(direction="HOLD")
+    return max(candidates, key=lambda item: item.contract_price)
+
+
+def evaluate_poly_75_breakout_entry(config: LiveConfig, now: datetime) -> PaperPosition | None:
+    event_start_ts = config_event_start(config, now)
+    market = fetch_live_market(event_start_ts, config)
+    if market is None:
+        print(f"[{now.isoformat()}] Mercado atual nao encontrado.")
+        return None
+
+    seconds_remaining = market.event_end_ts - int(now.timestamp())
+    if seconds_remaining < config.poly_breakout_min_seconds_remaining:
+        print(
+            f"[{now.strftime('%H:%M:%S')}] HOLD poly75: fim proximo "
+            f"remaining={seconds_remaining}s min={config.poly_breakout_min_seconds_remaining}s"
+        )
+        return None
+
+    up_price = fetch_buy_price(market.up_token_id)
+    down_price = fetch_buy_price(market.down_token_id)
+    decision = decide_poly_75_breakout(up_price, down_price, config)
+    print(
+        f"[{now.strftime('%H:%M:%S')}] {decision.direction} poly75 "
+        f"up={up_price:.3f} down={down_price:.3f} "
+        f"trigger={config.poly_breakout_trigger_price:.3f} max={config.max_contract_price:.3f}"
     )
     if decision.direction == "HOLD":
         return None
@@ -1703,7 +1782,7 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
                 and open_position.status == "OPEN"
                 and int(now.timestamp()) >= open_position.event_end_ts + config.settle_delay_seconds
             ):
-                if config.strategy == "poly-odds-momentum":
+                if config.strategy in {"poly-odds-momentum", "poly-75-breakout"}:
                     final_contract_price = fetch_buy_price(open_position.token_id)
                     closed = settle_position_by_contract_price(open_position, final_contract_price, int(now.timestamp()))
                 else:
@@ -1762,6 +1841,8 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
 
                 if config.strategy == "poly-odds-momentum":
                     candidate = evaluate_poly_odds_momentum_entry(config, now)
+                elif config.strategy == "poly-75-breakout":
+                    candidate = evaluate_poly_75_breakout_entry(config, now)
                 else:
                     candidate = evaluate_entry(config, now)
                 if candidate is not None:
@@ -1870,6 +1951,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "rsi-reversal-down",
             "ema-1s-trend",
             "poly-odds-momentum",
+            "poly-75-breakout",
         ],
     )
     parser.add_argument("--entry-offsets", default="1", help="Minutos um-based: 1,2,3,4,5.")
@@ -1923,6 +2005,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--odds-momentum-observation-seconds", type=int, default=60)
     parser.add_argument("--odds-momentum-min-move", type=float, default=0.08)
     parser.add_argument("--odds-momentum-opposite-move", type=float, default=0.05)
+    parser.add_argument("--poly-breakout-trigger-price", type=float, default=0.75)
+    parser.add_argument("--poly-breakout-min-seconds-remaining", type=int, default=90)
     parser.add_argument("--settle-delay-seconds", type=int, default=10)
     parser.add_argument("--trades-csv", default="paper_polymarket_5m_trades.csv")
     parser.add_argument(
@@ -2023,6 +2107,8 @@ def main() -> None:
         odds_momentum_observation_seconds=args.odds_momentum_observation_seconds,
         odds_momentum_min_move=args.odds_momentum_min_move,
         odds_momentum_opposite_move=args.odds_momentum_opposite_move,
+        poly_breakout_trigger_price=args.poly_breakout_trigger_price,
+        poly_breakout_min_seconds_remaining=args.poly_breakout_min_seconds_remaining,
         settle_delay_seconds=args.settle_delay_seconds,
         trades_csv=args.trades_csv,
         event_duration_minutes=args.event_duration_minutes,

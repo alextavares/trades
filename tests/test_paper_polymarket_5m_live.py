@@ -15,6 +15,7 @@ from paper_polymarket_5m_live import (
     calculate_order_shares,
     current_event_start,
     current_5m_event_start,
+    decide_poly_75_breakout,
     decide_poly_odds_momentum,
     decide_mispricing_contrarian,
     ema_1s_trend_direction,
@@ -186,6 +187,35 @@ def test_decide_poly_odds_momentum_holds_without_opposite_confirmation():
             strategy="poly-odds-momentum",
             odds_momentum_min_move=0.08,
             odds_momentum_opposite_move=0.05,
+        ),
+    )
+
+    assert decision.direction == "HOLD"
+
+
+def test_decide_poly_75_breakout_buys_side_that_reaches_trigger():
+    decision = decide_poly_75_breakout(
+        current_up=0.76,
+        current_down=0.23,
+        config=LiveConfig(
+            strategy="poly-75-breakout",
+            poly_breakout_trigger_price=0.75,
+            max_contract_price=0.78,
+        ),
+    )
+
+    assert decision.direction == "UP"
+    assert decision.contract_price == 0.76
+
+
+def test_decide_poly_75_breakout_holds_when_price_is_above_max_entry():
+    decision = decide_poly_75_breakout(
+        current_up=0.84,
+        current_down=0.15,
+        config=LiveConfig(
+            strategy="poly-75-breakout",
+            poly_breakout_trigger_price=0.75,
+            max_contract_price=0.78,
         ),
     )
 
