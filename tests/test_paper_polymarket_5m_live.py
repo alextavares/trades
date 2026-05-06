@@ -15,6 +15,7 @@ from paper_polymarket_5m_live import (
     calculate_order_shares,
     current_event_start,
     current_5m_event_start,
+    decide_poly_odds_momentum,
     decide_mispricing_contrarian,
     ema_1s_trend_direction,
     first_minute_continuation_direction,
@@ -31,6 +32,7 @@ from paper_polymarket_5m_live import (
     real_order_limit_price,
     release_real_shared_position,
     reserve_real_shared_position,
+    settle_position_by_contract_price,
     settle_position,
     should_skip_entry_hour,
     target_rejection_direction,
@@ -152,6 +154,66 @@ def test_calculate_order_shares_uses_stake_divided_by_price():
     shares = calculate_order_shares(stake_usdc=5.0, price=0.72)
     assert round(shares, 4) == shares
     assert round(shares * 0.72, 2) == shares * 0.72
+
+
+def test_decide_poly_odds_momentum_buys_up_when_up_strengthens_and_down_weakens():
+    decision = decide_poly_odds_momentum(
+        anchor_up=0.48,
+        anchor_down=0.52,
+        current_up=0.62,
+        current_down=0.39,
+        config=LiveConfig(
+            strategy="poly-odds-momentum",
+            odds_momentum_min_move=0.08,
+            odds_momentum_opposite_move=0.05,
+            min_contract_price=0.55,
+            max_contract_price=0.75,
+        ),
+    )
+
+    assert decision.direction == "UP"
+    assert decision.contract_price == 0.62
+    assert round(decision.edge, 4) == 0.14
+
+
+def test_decide_poly_odds_momentum_holds_without_opposite_confirmation():
+    decision = decide_poly_odds_momentum(
+        anchor_up=0.48,
+        anchor_down=0.52,
+        current_up=0.62,
+        current_down=0.50,
+        config=LiveConfig(
+            strategy="poly-odds-momentum",
+            odds_momentum_min_move=0.08,
+            odds_momentum_opposite_move=0.05,
+        ),
+    )
+
+    assert decision.direction == "HOLD"
+
+
+def test_settle_position_by_contract_price_uses_polymarket_contract_not_binance():
+    position = PaperPosition(
+        market_slug="btc-updown-5m-1",
+        event_start_ts=1,
+        event_end_ts=301,
+        direction="UP",
+        token_id="up-token",
+        entry_ts=100,
+        entry_btc_price=0.0,
+        target_price=0.5,
+        contract_price=0.62,
+        model_probability=0.62,
+        edge=0.14,
+        stake_usdc=10.0,
+    )
+
+    settled = settle_position_by_contract_price(position, final_contract_price=0.99, closed_ts=400)
+
+    assert settled.status == "CLOSED"
+    assert settled.win is True
+    assert round(settled.pnl_usdc, 4) == 6.129
+    assert settled.final_btc_price == 0.99
 
 
 def test_prepare_paper_limit_entry_keeps_signal_pending_when_price_above_limit():

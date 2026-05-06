@@ -71,6 +71,7 @@ except ImportError:  # pragma: no cover - exercised by environment, not unit tes
 
 BINANCE_PRICE_URL = "https://api.binance.com/api/v3/ticker/price"
 POLYMARKET_PRICE_URL = "https://clob.polymarket.com/price"
+POLYMARKET_PRICE_HISTORY_URL = "https://clob.polymarket.com/prices-history"
 GAMMA_EVENT_SLUG_URL = "https://gamma-api.polymarket.com/events/slug/{slug}"
 BRT = timezone(timedelta(hours=-3))
 
@@ -109,6 +110,9 @@ class LiveConfig:
     stake_usdc: float = 10.0
     paper_limit_entry_price: float = 0.0
     paper_limit_entry_min_seconds_remaining: int = 20
+    odds_momentum_observation_seconds: int = 60
+    odds_momentum_min_move: float = 0.08
+    odds_momentum_opposite_move: float = 0.05
     settle_delay_seconds: int = 10
     trades_csv: str = "paper_polymarket_5m_trades.csv"
     event_duration_minutes: int = 5
@@ -139,6 +143,12 @@ class LiveMarket:
     tick_size: str = "0.001"
     neg_risk: bool = False
     order_min_size: float = 5.0
+
+
+@dataclass(frozen=True)
+class TokenPricePoint:
+    timestamp: int
+    price: float
 
 
 @dataclass(frozen=True)
@@ -511,6 +521,127 @@ def fetch_buy_price(token_id: str) -> float:
     response = requests.get(POLYMARKET_PRICE_URL, params={"token_id": token_id, "side": "BUY"}, timeout=10)
     response.raise_for_status()
     return float(response.json()["price"])
+
+
+def fetch_token_price_history(token_id: str, start_ts: int, end_ts: int) -> tuple[TokenPricePoint, ...]:
+    response = requests.get(
+        POLYMARKET_PRICE_HISTORY_URL,
+        params={"market": token_id, "startTs": start_ts, "endTs": end_ts, "fidelity": 1},
+        timeout=15,
+    )
+    response.raise_for_status()
+    points: list[TokenPricePoint] = []
+    for item in response.json().get("history", []):
+        try:
+            points.append(TokenPricePoint(timestamp=int(item["t"]), price=float(item["p"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return tuple(points)
+
+
+def first_history_price(points: tuple[TokenPricePoint, ...]) -> float | None:
+    if not points:
+        return None
+    return sorted(points, key=lambda item: item.timestamp)[0].price
+
+
+def decide_poly_odds_momentum(
+    anchor_up: float,
+    anchor_down: float,
+    current_up: float,
+    current_down: float,
+    config: LiveConfig,
+) -> TradeDecision:
+    up_move = current_up - anchor_up
+    down_move = current_down - anchor_down
+    candidates: list[TradeDecision] = []
+
+    if (
+        "UP" in config.allowed_directions
+        and config.min_contract_price <= current_up <= config.max_contract_price
+        and up_move >= config.odds_momentum_min_move
+        and down_move <= -config.odds_momentum_opposite_move
+    ):
+        candidates.append(
+            TradeDecision(
+                direction="UP",
+                probability=current_up,
+                contract_price=current_up,
+                edge=round(up_move, 10),
+            )
+        )
+
+    if (
+        "DOWN" in config.allowed_directions
+        and config.min_contract_price <= current_down <= config.max_contract_price
+        and down_move >= config.odds_momentum_min_move
+        and up_move <= -config.odds_momentum_opposite_move
+    ):
+        candidates.append(
+            TradeDecision(
+                direction="DOWN",
+                probability=current_down,
+                contract_price=current_down,
+                edge=round(down_move, 10),
+            )
+        )
+
+    if not candidates:
+        return TradeDecision(direction="HOLD")
+    return max(candidates, key=lambda item: item.edge)
+
+
+def evaluate_poly_odds_momentum_entry(config: LiveConfig, now: datetime) -> PaperPosition | None:
+    event_start_ts = config_event_start(config, now)
+    elapsed = int(now.timestamp()) - event_start_ts
+    if elapsed < config.odds_momentum_observation_seconds:
+        print(
+            f"[{now.strftime('%H:%M:%S')}] Aguardando odds momentum "
+            f"obs={config.odds_momentum_observation_seconds}s elapsed={elapsed}s"
+        )
+        return None
+
+    market = fetch_live_market(event_start_ts, config)
+    if market is None:
+        print(f"[{now.isoformat()}] Mercado atual nao encontrado.")
+        return None
+
+    end_ts = int(now.timestamp())
+    up_history = fetch_token_price_history(market.up_token_id, event_start_ts, end_ts)
+    down_history = fetch_token_price_history(market.down_token_id, event_start_ts, end_ts)
+    anchor_up = first_history_price(up_history)
+    anchor_down = first_history_price(down_history)
+    if anchor_up is None or anchor_down is None:
+        print(f"[{now.strftime('%H:%M:%S')}] HOLD poly-odds: historico insuficiente")
+        return None
+
+    current_up = fetch_buy_price(market.up_token_id)
+    current_down = fetch_buy_price(market.down_token_id)
+    decision = decide_poly_odds_momentum(anchor_up, anchor_down, current_up, current_down, config)
+    print(
+        f"[{now.strftime('%H:%M:%S')}] {decision.direction} poly-odds "
+        f"up={current_up:.3f}({current_up - anchor_up:+.3f}) "
+        f"down={current_down:.3f}({current_down - anchor_down:+.3f}) "
+        f"anchor_up={anchor_up:.3f} anchor_down={anchor_down:.3f}"
+    )
+    if decision.direction == "HOLD":
+        return None
+
+    token_id = market.up_token_id if decision.direction == "UP" else market.down_token_id
+    return PaperPosition(
+        market_slug=market.slug,
+        event_start_ts=market.event_start_ts,
+        event_end_ts=market.event_end_ts,
+        direction=decision.direction,
+        token_id=token_id,
+        entry_ts=int(now.timestamp()),
+        entry_btc_price=0.0,
+        target_price=0.5,
+        contract_price=decision.contract_price,
+        model_probability=decision.probability,
+        edge=decision.edge,
+        stake_usdc=config.stake_usdc,
+    )
 
 
 def first_minute_continuation_direction(
@@ -1439,6 +1570,28 @@ def settle_position(position: PaperPosition, final_btc_price: float, closed_ts: 
     )
 
 
+def settle_position_by_contract_price(
+    position: PaperPosition,
+    final_contract_price: float,
+    closed_ts: int | None = None,
+) -> PaperPosition:
+    win = final_contract_price >= 0.5
+    pnl = position.stake_usdc * (1.0 / position.contract_price - 1.0) if win else -position.stake_usdc
+    return replace(
+        position,
+        status="CLOSED",
+        final_btc_price=final_contract_price,
+        win=win,
+        pnl_usdc=pnl,
+        closed_ts=closed_ts or int(time.time()),
+        order_response=(
+            f"{position.order_response}; final_contract_price={final_contract_price:.3f}"
+            if position.order_response
+            else f"final_contract_price={final_contract_price:.3f}"
+        ),
+    )
+
+
 def append_trade_csv(path: str, position: PaperPosition) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True) if output.parent != Path(".") else None
@@ -1550,8 +1703,12 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
                 and open_position.status == "OPEN"
                 and int(now.timestamp()) >= open_position.event_end_ts + config.settle_delay_seconds
             ):
-                final_price = fetch_binance_price(config.symbol)
-                closed = settle_position(open_position, final_price, int(now.timestamp()))
+                if config.strategy == "poly-odds-momentum":
+                    final_contract_price = fetch_buy_price(open_position.token_id)
+                    closed = settle_position_by_contract_price(open_position, final_contract_price, int(now.timestamp()))
+                else:
+                    final_price = fetch_binance_price(config.symbol)
+                    closed = settle_position(open_position, final_price, int(now.timestamp()))
                 append_trade_csv(config.trades_csv, closed)
                 completed += 1
                 print(
@@ -1603,7 +1760,10 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
                     )
                     break
 
-                candidate = evaluate_entry(config, now)
+                if config.strategy == "poly-odds-momentum":
+                    candidate = evaluate_poly_odds_momentum_entry(config, now)
+                else:
+                    candidate = evaluate_entry(config, now)
                 if candidate is not None:
                     if config.real_mode:
                         open_count = 1 if open_position is not None else 0
@@ -1709,6 +1869,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "bollinger-rsi-reversal",
             "rsi-reversal-down",
             "ema-1s-trend",
+            "poly-odds-momentum",
         ],
     )
     parser.add_argument("--entry-offsets", default="1", help="Minutos um-based: 1,2,3,4,5.")
@@ -1759,6 +1920,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=20,
         help="Paper only: cancela limit pendente quando restarem estes segundos ou menos no mercado.",
     )
+    parser.add_argument("--odds-momentum-observation-seconds", type=int, default=60)
+    parser.add_argument("--odds-momentum-min-move", type=float, default=0.08)
+    parser.add_argument("--odds-momentum-opposite-move", type=float, default=0.05)
     parser.add_argument("--settle-delay-seconds", type=int, default=10)
     parser.add_argument("--trades-csv", default="paper_polymarket_5m_trades.csv")
     parser.add_argument(
@@ -1856,6 +2020,9 @@ def main() -> None:
         stake_usdc=args.stake,
         paper_limit_entry_price=args.paper_limit_entry_price,
         paper_limit_entry_min_seconds_remaining=args.paper_limit_entry_min_seconds_remaining,
+        odds_momentum_observation_seconds=args.odds_momentum_observation_seconds,
+        odds_momentum_min_move=args.odds_momentum_min_move,
+        odds_momentum_opposite_move=args.odds_momentum_opposite_move,
         settle_delay_seconds=args.settle_delay_seconds,
         trades_csv=args.trades_csv,
         event_duration_minutes=args.event_duration_minutes,

@@ -121,6 +121,18 @@ SOURCES = [
         "paper_edge3_eth_polymarket_5m_live.log",
     ),
     StrategySource(
+        "poly_odds_momentum_60s",
+        "Poly odds momentum 60s",
+        "paper_poly_odds_momentum_60s_trades.csv",
+        "paper_poly_odds_momentum_60s_live.log",
+    ),
+    StrategySource(
+        "poly_odds_momentum_90s",
+        "Poly odds momentum 90s",
+        "paper_poly_odds_momentum_90s_trades.csv",
+        "paper_poly_odds_momentum_90s_live.log",
+    ),
+    StrategySource(
         "edge3_value",
         "Edge 3% valor",
         "paper_edge3_value_polymarket_5m_trades.csv",
