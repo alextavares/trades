@@ -31,6 +31,7 @@ from paper_polymarket_5m_live import (
     prepare_paper_limit_entry,
     recent_abs_move_pct,
     real_order_limit_price,
+    RealOrderSubmissionUncertain,
     release_real_shared_position,
     reserve_real_shared_position,
     settle_position_by_contract_price,
@@ -596,6 +597,44 @@ def test_place_real_buy_order_accepts_backend_wrapper_response():
     assert opened.order_status == "POSTED"
 
 
+
+
+def test_place_real_buy_order_marks_submission_exception_uncertain():
+    import pytest
+
+    class FailingBackend:
+        def post_limit_buy(self, token_id, limit_price, shares, market, order_type_name):
+            raise TimeoutError("request timed out")
+
+    position = PaperPosition(
+        market_slug="btc-updown-5m-1",
+        event_start_ts=1,
+        event_end_ts=301,
+        direction="UP",
+        token_id="up-token",
+        entry_ts=100,
+        entry_btc_price=101.0,
+        target_price=100.0,
+        contract_price=0.65,
+        model_probability=0.80,
+        edge=0.15,
+        stake_usdc=10.0,
+    )
+    market = live.LiveMarket(
+        slug="btc-updown-5m-1",
+        event_start_ts=1,
+        event_end_ts=301,
+        up_token_id="up-token",
+        down_token_id="down-token",
+        accepting_orders=True,
+        tick_size="0.01",
+        neg_risk=False,
+        order_min_size=5.0,
+    )
+    config = LiveConfig(real_mode=True, real_confirmed=True, real_order_type="FAK")
+
+    with pytest.raises(RealOrderSubmissionUncertain, match="ordem real sem confirmacao"):
+        place_real_buy_order(FailingBackend(), position, market, config)
 
 
 def test_target_rejection_detects_wick_reclaim_and_rejection():

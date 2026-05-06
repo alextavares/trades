@@ -200,6 +200,10 @@ class LegacyRealOrderClient:
         return self._client.post_order(signed_order, order_type)
 
 
+class RealOrderSubmissionUncertain(RuntimeError):
+    pass
+
+
 class PolyNodeRealOrderClient:
     def __init__(self, trader) -> None:
         self._trader = trader
@@ -1336,7 +1340,10 @@ def place_real_buy_order(client, position: PaperPosition, market: LiveMarket, co
             f"stake pequeno demais: {config.stake_usdc:.2f} USDC compra {shares:.4f} shares, "
             f"minimo do mercado e {market.order_min_size:.4f}"
         )
-    response = client.post_limit_buy(position.token_id, limit_price, shares, market, config.real_order_type)
+    try:
+        response = client.post_limit_buy(position.token_id, limit_price, shares, market, config.real_order_type)
+    except Exception as exc:
+        raise RealOrderSubmissionUncertain(f"ordem real sem confirmacao: {exc}") from exc
     if not order_was_accepted(response):
         raise RuntimeError(f"ordem nao aceita: {compact_order_response(response)}")
 
@@ -1894,10 +1901,17 @@ def run_paper_loop(config: LiveConfig, cycles: int = 0, once: bool = False) -> N
                                 else:
                                     try:
                                         candidate = place_real_buy_order(client, candidate, market, config)
+                                    except RealOrderSubmissionUncertain as exc:
+                                        print(
+                                            f"[{now.strftime('%H:%M:%S')}] ORDEM REAL INCERTA: {exc}. "
+                                            f"Mantendo lock key={lock_key} e pulando este mercado para evitar duplicar."
+                                        )
+                                        candidate = None
                                     except Exception:
                                         release_real_shared_position(candidate, config)
                                         raise
-                                    real_trades_sent += 1
+                                    if candidate is not None:
+                                        real_trades_sent += 1
 
                     if candidate is None:
                         time.sleep(config.poll_seconds)
