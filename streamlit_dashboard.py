@@ -342,6 +342,13 @@ SOURCES = [
         "real_ema_1s_trend_polymarket_5m_live.log",
         "REAL",
     ),
+    StrategySource(
+        "real_poly_odds_momentum_60s",
+        "Real Poly odds 60s",
+        "real_poly_odds_momentum_60s_trades.csv",
+        "real_poly_odds_momentum_60s_live.log",
+        "REAL",
+    ),
 ]
 
 

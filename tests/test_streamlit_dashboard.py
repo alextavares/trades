@@ -436,6 +436,7 @@ def test_real_strategy_sources_are_registered_separately():
     edge = next(item for item in SOURCES if item.key == "real_edge3")
     first_minute = next(item for item in SOURCES if item.key == "real_first_minute")
     ema_trend = next(item for item in SOURCES if item.key == "real_ema_1s_trend")
+    poly_odds = next(item for item in SOURCES if item.key == "real_poly_odds_momentum_60s")
 
     assert edge.label == "Real Edge 3"
     assert edge.csv_name == "real_edge3_polymarket_5m_trades.csv"
@@ -446,6 +447,10 @@ def test_real_strategy_sources_are_registered_separately():
     assert ema_trend.label == "Real EMA 1s trend"
     assert ema_trend.csv_name == "real_ema_1s_trend_polymarket_5m_trades.csv"
     assert ema_trend.kind == "REAL"
+    assert poly_odds.label == "Real Poly odds 60s"
+    assert poly_odds.csv_name == "real_poly_odds_momentum_60s_trades.csv"
+    assert poly_odds.log_name == "real_poly_odds_momentum_60s_live.log"
+    assert poly_odds.kind == "REAL"
 
 
 def test_mt5_demo_sources_are_registered_separately():
@@ -523,6 +528,7 @@ def test_get_remote_processes_returns_paper_and_real_rows(monkeypatch):
             "75860 venv/bin/python -u paper_mes_orb_live.py --trades-csv paper_mes_orb_30m_trades.csv",
             "75860 venv/bin/python -u paper_binance_spot_momentum_scanner.py --trades-csv paper_binance_spot_momentum_scanner_trades.csv",
             "67749 venv/bin/python -u paper_polymarket_5m_live.py --real --trades-csv real_edge3_polymarket_5m_trades.csv",
+            "67750 venv/bin/python -u paper_polymarket_5m_live.py --real --trades-csv real_poly_odds_momentum_60s_trades.csv",
         ]
     )
     monkeypatch.setattr("streamlit_dashboard.run_remote_command", lambda command, timeout=8: output)
@@ -546,6 +552,9 @@ def test_get_remote_processes_returns_paper_and_real_rows(monkeypatch):
     assert rows[5]["PID"] == "67749"
     assert rows[5]["Estrategia"] == "Real Edge 3"
     assert rows[5]["Modo"] == "REAL REMOTO"
+    assert rows[6]["PID"] == "67750"
+    assert rows[6]["Estrategia"] == "Real Poly odds 60s"
+    assert rows[6]["Modo"] == "REAL REMOTO"
 
 
 def test_read_trades_uses_entry_ts_when_entry_time_utc_is_missing():
