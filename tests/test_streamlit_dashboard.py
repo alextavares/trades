@@ -82,10 +82,13 @@ def test_default_visible_labels_hides_failed_sources_by_default():
     labels = default_visible_labels()
 
     assert "Edge 3%" in labels
-    assert "Edge 3% max 0.80" in labels
+    assert "Edge 3% sem 10-11h" in labels
+    assert "Primeiro minuto DOWN 00-11h" in labels
+    assert "Primeiro minuto valor horarios fortes" in labels
     assert "Primeiro minuto valor" in labels
     assert "MT5 US500 base" in labels
     assert "MT5 US500 candidato" in labels
+    assert "[FAILED] Edge 3% max 0.80" not in labels
     assert "[FAILED] Edge 4%" not in labels
     assert "[FAILED] Primeiro minuto" not in labels
     assert "[FAILED] Late window" not in labels
@@ -95,7 +98,7 @@ def test_default_visible_labels_can_include_failed_sources():
     labels = default_visible_labels(show_failed=True)
 
     assert "Edge 3%" in labels
-    assert "Edge 3% sem 10h" in labels
+    assert "[FAILED] Edge 3% sem 10h" in labels
     assert "[FAILED] Edge 4%" in labels
     assert "[FAILED] Late window" in labels
 
@@ -246,27 +249,27 @@ def test_edge_variants_marked_failed_when_deprecated():
 def test_edge3_candidate_variants_are_registered_as_active_papers():
     expected = {
         "edge3_max80": (
-            "Edge 3% max 0.80",
+            "[FAILED] Edge 3% max 0.80",
             "paper_edge3_max80_polymarket_5m_trades.csv",
             "paper_edge3_max80_polymarket_5m_live.log",
         ),
         "edge3_no10h": (
-            "Edge 3% sem 10h",
+            "[FAILED] Edge 3% sem 10h",
             "paper_edge3_no10h_polymarket_5m_trades.csv",
             "paper_edge3_no10h_polymarket_5m_live.log",
         ),
         "edge3_max80_no10h": (
-            "Edge 3% max 0.80 sem 10h",
+            "[FAILED] Edge 3% max 0.80 sem 10h",
             "paper_edge3_max80_no10h_polymarket_5m_trades.csv",
             "paper_edge3_max80_no10h_polymarket_5m_live.log",
         ),
         "edge3_down_only": (
-            "Edge 3% DOWN only",
+            "[FAILED] Edge 3% DOWN only",
             "paper_edge3_down_only_polymarket_5m_trades.csv",
             "paper_edge3_down_only_polymarket_5m_live.log",
         ),
         "edge3_limit60": (
-            "Edge 3% limit 0.60",
+            "[FAILED] Edge 3% limit 0.60",
             "paper_edge3_limit60_polymarket_5m_trades.csv",
             "paper_edge3_limit60_polymarket_5m_live.log",
         ),
@@ -276,12 +279,12 @@ def test_edge3_candidate_variants_are_registered_as_active_papers():
             "paper_edge3_eth_polymarket_5m_live.log",
         ),
         "poly_odds_momentum_60s": (
-            "Poly odds momentum 60s",
+            "[FAILED] Poly odds momentum 60s",
             "paper_poly_odds_momentum_60s_trades.csv",
             "paper_poly_odds_momentum_60s_live.log",
         ),
         "poly_odds_momentum_90s": (
-            "Poly odds momentum 90s",
+            "[FAILED] Poly odds momentum 90s",
             "paper_poly_odds_momentum_90s_trades.csv",
             "paper_poly_odds_momentum_90s_live.log",
         ),
@@ -291,9 +294,24 @@ def test_edge3_candidate_variants_are_registered_as_active_papers():
             "paper_poly_odds_momentum_60s_realistic_live.log",
         ),
         "poly_75_breakout": (
-            "Poly 75 breakout",
+            "[FAILED] Poly 75 breakout",
             "paper_poly_75_breakout_trades.csv",
             "paper_poly_75_breakout_live.log",
+        ),
+        "edge3_no10_11": (
+            "Edge 3% sem 10-11h",
+            "paper_edge3_no10_11_polymarket_5m_trades.csv",
+            "paper_edge3_no10_11_polymarket_5m_live.log",
+        ),
+        "first_minute_value_strong_hours": (
+            "Primeiro minuto valor horarios fortes",
+            "paper_first_minute_value_strong_hours_trades.csv",
+            "paper_first_minute_value_strong_hours_live.log",
+        ),
+        "first_minute_down_00_11": (
+            "Primeiro minuto DOWN 00-11h",
+            "paper_first_minute_down_00_11_trades.csv",
+            "paper_first_minute_down_00_11_live.log",
         ),
     }
 
@@ -302,7 +320,10 @@ def test_edge3_candidate_variants_are_registered_as_active_papers():
         assert source.label == label
         assert source.csv_name == csv_name
         assert source.log_name == log_name
-        assert source.kind == "PAPER"
+        if label.startswith("[FAILED]"):
+            assert source.kind == "FAILED TEST"
+        else:
+            assert source.kind == "PAPER"
 
 
 def test_edge3_limit55_source_is_failed():
@@ -430,8 +451,9 @@ def test_late_lottery_variant_sources_are_registered():
 def test_ema_1s_trend_source_is_registered():
     source = next(item for item in SOURCES if item.key == "ema_1s_trend")
 
-    assert source.label == "EMA 1s trend"
+    assert source.label == "[FAILED] EMA 1s trend"
     assert source.csv_name == "paper_ema_1s_trend_trades.csv"
+    assert source.kind == "FAILED TEST"
 
 
 def test_failed_test_sources_are_marked_in_panel():
@@ -463,6 +485,25 @@ def test_real_strategy_sources_are_registered_separately():
     assert poly_odds.csv_name == "real_poly_odds_momentum_60s_trades.csv"
     assert poly_odds.log_name == "real_poly_odds_momentum_60s_main_live.log"
     assert poly_odds.kind == "REAL"
+
+
+def test_paused_current_paper_sources_are_marked_failed():
+    keys = {
+        "edge3_max80",
+        "edge3_no10h",
+        "edge3_max80_no10h",
+        "edge3_down_only",
+        "edge3_limit60",
+        "ema_1s_trend",
+        "poly_odds_momentum_60s",
+        "poly_odds_momentum_90s",
+        "poly_75_breakout",
+    }
+
+    for source in SOURCES:
+        if source.key in keys:
+            assert source.kind == "FAILED TEST"
+            assert source.label.startswith("[FAILED]")
 
 
 def test_remote_real_openssh_config_uses_default_key(monkeypatch, tmp_path):
@@ -537,7 +578,7 @@ def test_match_source_by_command_uses_csv_name_and_real_fallback():
     assert edge is not None
     assert edge.label == "Edge 3%"
     assert edge_max80 is not None
-    assert edge_max80.label == "Edge 3% max 0.80"
+    assert edge_max80.label == "[FAILED] Edge 3% max 0.80"
     assert spot is not None
     assert spot.label == "Binance Spot Momentum"
     assert mes_orb is not None
@@ -591,7 +632,7 @@ def test_get_remote_processes_returns_paper_and_real_rows(monkeypatch):
     assert rows[0]["Estrategia"] == "Edge 3% valor"
     assert rows[0]["Modo"] == "PAPER REMOTO"
     assert rows[1]["PID"] == "74189"
-    assert rows[1]["Estrategia"] == "Edge 3% sem 10h"
+    assert rows[1]["Estrategia"] == "[FAILED] Edge 3% sem 10h"
     assert rows[1]["Modo"] == "PAPER REMOTO"
     assert rows[2]["PID"] == "75859"
     assert rows[2]["Estrategia"] == "[FAILED] MES EMA scalp"

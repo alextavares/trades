@@ -84,27 +84,31 @@ SOURCES = [
     StrategySource("edge_3", "Edge 3%", "paper_edge3_polymarket_5m_trades.csv", "paper_edge3_polymarket_5m_live.log"),
     StrategySource(
         "edge3_max80",
-        "Edge 3% max 0.80",
+        "[FAILED] Edge 3% max 0.80",
         "paper_edge3_max80_polymarket_5m_trades.csv",
         "paper_edge3_max80_polymarket_5m_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "edge3_no10h",
-        "Edge 3% sem 10h",
+        "[FAILED] Edge 3% sem 10h",
         "paper_edge3_no10h_polymarket_5m_trades.csv",
         "paper_edge3_no10h_polymarket_5m_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "edge3_max80_no10h",
-        "Edge 3% max 0.80 sem 10h",
+        "[FAILED] Edge 3% max 0.80 sem 10h",
         "paper_edge3_max80_no10h_polymarket_5m_trades.csv",
         "paper_edge3_max80_no10h_polymarket_5m_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "edge3_down_only",
-        "Edge 3% DOWN only",
+        "[FAILED] Edge 3% DOWN only",
         "paper_edge3_down_only_polymarket_5m_trades.csv",
         "paper_edge3_down_only_polymarket_5m_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "edge3_limit55",
@@ -115,9 +119,10 @@ SOURCES = [
     ),
     StrategySource(
         "edge3_limit60",
-        "Edge 3% limit 0.60",
+        "[FAILED] Edge 3% limit 0.60",
         "paper_edge3_limit60_polymarket_5m_trades.csv",
         "paper_edge3_limit60_polymarket_5m_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "edge3_eth",
@@ -127,15 +132,17 @@ SOURCES = [
     ),
     StrategySource(
         "poly_odds_momentum_60s",
-        "Poly odds momentum 60s",
+        "[FAILED] Poly odds momentum 60s",
         "paper_poly_odds_momentum_60s_trades.csv",
         "paper_poly_odds_momentum_60s_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "poly_odds_momentum_90s",
-        "Poly odds momentum 90s",
+        "[FAILED] Poly odds momentum 90s",
         "paper_poly_odds_momentum_90s_trades.csv",
         "paper_poly_odds_momentum_90s_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "poly_odds_momentum_60s_realistic",
@@ -145,9 +152,28 @@ SOURCES = [
     ),
     StrategySource(
         "poly_75_breakout",
-        "Poly 75 breakout",
+        "[FAILED] Poly 75 breakout",
         "paper_poly_75_breakout_trades.csv",
         "paper_poly_75_breakout_live.log",
+        "FAILED TEST",
+    ),
+    StrategySource(
+        "edge3_no10_11",
+        "Edge 3% sem 10-11h",
+        "paper_edge3_no10_11_polymarket_5m_trades.csv",
+        "paper_edge3_no10_11_polymarket_5m_live.log",
+    ),
+    StrategySource(
+        "first_minute_value_strong_hours",
+        "Primeiro minuto valor horarios fortes",
+        "paper_first_minute_value_strong_hours_trades.csv",
+        "paper_first_minute_value_strong_hours_live.log",
+    ),
+    StrategySource(
+        "first_minute_down_00_11",
+        "Primeiro minuto DOWN 00-11h",
+        "paper_first_minute_down_00_11_trades.csv",
+        "paper_first_minute_down_00_11_live.log",
     ),
     StrategySource(
         "edge3_value",
@@ -232,9 +258,10 @@ SOURCES = [
     ),
     StrategySource(
         "ema_1s_trend",
-        "EMA 1s trend",
+        "[FAILED] EMA 1s trend",
         "paper_ema_1s_trend_trades.csv",
         "paper_ema_1s_trend_live.log",
+        "FAILED TEST",
     ),
     StrategySource(
         "ema_1s_value",
